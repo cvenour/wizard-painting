@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The wizard by the fire</title>
+<style>
+  :root { --wall: #15110e; --ink: #eadfc8; --muted: #a8977c; --gold: #c39a48; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 50% 38%, #2b2119 0%, #15110e 72%);
+    color: var(--ink);
+    font-family: Georgia, "Times New Roman", serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; overflow: hidden;
+  }
+  .frame {
+    padding: clamp(6px, 1.3vmin, 16px);
+    background: linear-gradient(135deg, #7a552f 0%, #3b2716 35%, #6e4b2a 55%, #2d1e11 100%);
+    box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 0 4px #2a1c10, 0 26px 70px rgba(0, 0, 0, 0.75);
+    border-radius: 3px;
+  }
+  .painting {
+    position: relative;
+    width: min(90vw, calc((100vh - 130px) * 16 / 9));
+    aspect-ratio: 16 / 9;
+    background: #0b0a12;
+    overflow: hidden;
+  }
+  .painting canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; cursor: pointer; }
+  .loading {
+    position: absolute; inset: 0; background: #0b0a12;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    color: var(--muted); font-size: 15px; text-align: center; padding: 0 24px;
+    transition: opacity 0.9s;
+  }
+  .loading.done { opacity: 0; pointer-events: none; }
+  .bar { width: 40%; max-width: 320px; height: 3px; background: rgba(255, 255, 255, 0.12); }
+  .bar div { height: 100%; width: 0; background: var(--gold); transition: width 0.25s; }
+  .label { margin-top: 18px; text-align: center; line-height: 1.5; }
+  .label h1 { font-weight: normal; font-size: 19px; margin: 0; letter-spacing: 0.01em; }
+  .label p { margin: 2px 0 0; font-size: 14px; color: var(--muted); }
+  .label button {
+    margin-top: 10px; font: inherit; font-size: 13px; color: var(--muted); background: none;
+    border: 1px solid rgba(195, 154, 72, 0.45); border-radius: 3px; padding: 4px 12px; cursor: pointer;
+  }
+  .label button:hover { color: var(--ink); border-color: var(--gold); }
+  .fps { position: absolute; top: 6px; left: 8px; font: 12px/1.4 Menlo, monospace; color: #fff; background: rgba(0, 0, 0, 0.55); padding: 2px 6px; display: none; }
+  body.full { background: #000; }
+  body.full .frame { padding: 0; background: none; box-shadow: none; }
+  body.full .painting { width: min(100vw, calc(100vh * 16 / 9)); }
+  body.full .label { display: none; }
+  body.full.idle, body.full.idle canvas { cursor: none; }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <div class="painting">
+      <canvas id="unity-canvas" tabindex="-1"></canvas>
+      <div class="loading"><span class="msg">Loading the painting…</span><div class="bar"><div></div></div></div>
+      <div class="fps"></div>
+    </div>
+  </div>
+  <div class="label">
+    <h1>The wizard by the fire</h1>
+    <p>Click the painting to call him.</p>
+    <button type="button" class="fullbtn" hidden>Full screen</button>
+  </div>
+<script>
+  var canvas = document.querySelector("canvas");
+  var loading = document.querySelector(".loading");
+  var msg = document.querySelector(".loading .msg");
+  var bar = document.querySelector(".bar div");
+  var fullbtn = document.querySelector(".fullbtn");
+  var wizard = null;
+
+  function fail(text) {
+    msg.textContent = text;
+    bar.parentNode.style.display = "none";
+  }
+
+  // full screen: the whole page, so the picture stays 16:9 with black at the edges
+  if (document.fullscreenEnabled || document.webkitFullscreenEnabled) fullbtn.hidden = false;
+  fullbtn.addEventListener("click", function () {
+    var el = document.documentElement;
+    (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+    fullbtn.blur();
+  });
+  function onFull() { document.body.classList.toggle("full", !!(document.fullscreenElement || document.webkitFullscreenElement)); }
+  document.addEventListener("fullscreenchange", onFull);
+  document.addEventListener("webkitfullscreenchange", onFull);
+  var idleTimer = 0;
+  document.addEventListener("mousemove", function () {
+    document.body.classList.remove("idle");
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(function () { document.body.classList.add("idle"); }, 2500);
+  });
+
+  // add ?fps to the address to see how many pictures a second the browser draws
+  if (/[?&]fps/.test(location.search)) {
+    var fpsEl = document.querySelector(".fps");
+    fpsEl.style.display = "block";
+    var frames = 0, t0 = performance.now();
+    (function tick(now) {
+      frames++;
+      if (now - t0 >= 1000) {
+        fpsEl.textContent = Math.round(frames * 1000 / (now - t0)) + " fps  " + canvas.width + "×" + canvas.height;
+        frames = 0; t0 = now;
+      }
+      requestAnimationFrame(tick);
+    })(t0);
+  }
+
+  var test = document.createElement("canvas");
+  if (location.protocol === "file:") {
+    fail("This page has to be opened from a web address, not straight from the file. Browsers block a page opened from a file from loading the painting's other files.");
+  } else if (!test.getContext("webgl2")) {
+    fail("Sorry, this browser can't show the painting. It needs WebGL 2, which recent versions of Chrome, Firefox, Safari and Edge all have.");
+  } else {
+    var config = {
+      dataUrl: "Build/web.data.unityweb",
+      frameworkUrl: "Build/web.framework.js.unityweb",
+      codeUrl: "Build/web.wasm.unityweb",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "DefaultCompany",
+      productName: "WizardPainting",
+      productVersion: "1.0",
+      devicePixelRatio: 1,
+    };
+    var script = document.createElement("script");
+    script.src = "Build/web.loader.js";
+    script.onload = function () {
+      createUnityInstance(canvas, config, function (p) {
+        bar.style.width = Math.round(100 * p) + "%";
+        msg.textContent = "Loading the painting… " + Math.round(100 * p) + "%";
+      }).then(function (instance) {
+        wizard = instance;
+        loading.classList.add("done");
+        setTimeout(function () { loading.remove(); }, 1000);
+      }).catch(function (e) {
+        fail("Sorry, the painting couldn't start in this browser. (" + e + ")");
+      });
+    };
+    script.onerror = function () { fail("Sorry, the painting's files couldn't be loaded."); };
+    document.body.appendChild(script);
+  }
+</script>
+</body>
+</html>
